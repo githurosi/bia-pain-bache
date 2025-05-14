@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       force_update:
-        description: '是否强制更新（忽略版本检查）'
+        description: '强制更新（跳过版本检查）'
         type: boolean
         default: false
 
@@ -28,19 +28,21 @@ jobs:
     outputs:
       new_version: ${{ steps.update.outputs.new_version }}
     steps:
-      - name: 检出仓库
+      - name: 精确检出仓库
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          path: worker-repo
+          path: target-repo
           token: ${{ secrets.GITHUB_TOKEN }}
+          # 添加安全校验
+          ref: ${{ github.event.repository.default_branch }}
 
-      - name: 预安装依赖
+      - name: 依赖安装
         run: |
           sudo apt-get update
           sudo apt-get install -y pigz jq
 
-      - name: 检查并更新 Worker
+      - name: 版本同步引擎
         id: update
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -54,67 +56,95 @@ jobs:
             echo "[$(date +'%Y-%m-%d %H:%M:%S')] [$level] $@"
           }
 
+          # 初始化参数
           FORCE_UPDATE=${{ inputs.force_update }}
-          LOCAL_VERSION=$(cat worker-repo/version.txt 2>/dev/null || echo "")
-          log "INFO" "开始检查更新..."
-          log "DEBUG" "本地版本: ${LOCAL_VERSION:-无}"
+          LOCAL_VERSION=$(cat target-repo/version.txt 2>/dev/null || echo "0.0.0")
+          REPO_OWNER="bia-pain-bache"
+          REPO_NAME="BPB-Worker-Panel"
+          SOURCE_ASSET="worker-source.zip"  # 明确指定源码包名称
 
-          REPO_URL="https://api.github.com/repos/bia-pain-bache/BPB-Worker-Panel/releases"
+          # 安全校验
+          if [[ ! "$REPO_OWNER" =~ ^[a-z0-9-]+$ ]] || [[ ! "$REPO_NAME" =~ ^[a-z0-9-]+$ ]]; then
+            log "ERROR" "非法仓库标识"
+            exit 1
+          fi
+
+          log "INFO" "开始版本同步流程（本地版本：$LOCAL_VERSION）"
+
+          # 获取版本元数据
+          API_URL="https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases/latest"
           RESPONSE=$(curl -sS --retry 5 \
             -H "Authorization: token $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github.v3+json" \
-            "$REPO_URL")
+            "$API_URL")
 
-          if ! echo "$RESPONSE" | jq -e '.[0] | has("tag_name")' >/dev/null; then
-            log "ERROR" "获取版本信息失败"
+          # 响应验证
+          if ! jq -e '.tag_name' >/dev/null <<< "$RESPONSE"; then
+            log "ERROR" "API响应异常：$(jq .message <<< "$RESPONSE" || echo "无效响应")"
             exit 1
           fi
 
-          TAG_NAME=$(echo "$RESPONSE" | jq -r '.[0].tag_name')
-          DOWNLOAD_URL=$(echo "$RESPONSE" | jq -r '.[0].assets[] | select(.name == "worker-source.zip") | .browser_download_url')
+          # 解析数据
+          TAG_NAME=$(jq -r '.tag_name' <<< "$RESPONSE")
+          DOWNLOAD_URL=$(jq -r ".assets[] | select(.name == \"$SOURCE_ASSET\") | .browser_download_url" <<< "$RESPONSE")
 
-          if [ -z "$TAG_NAME" ]; then
-            log "ERROR" "无法解析版本标签"
+          # 版本校验
+          if [ -z "$DOWNLOAD_URL" ]; then
+            log "ERROR" "未找到源码包：$SOURCE_ASSET"
             exit 1
           fi
 
+          # 版本比较
           if [ "$LOCAL_VERSION" = "$TAG_NAME" ] && [ "$FORCE_UPDATE" != "true" ]; then
-            log "INFO" "已是最新版本，无需更新"
-            echo "new_version=$LOCAL_VERSION" >> $GITHUB_OUTPUT
+            log "INFO" "版本无变化（当前：$TAG_NAME）"
+            echo "new_version=$TAG_NAME" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          if ! wget --tries=5 --waitretry=1 -q -O worker-source.zip "$DOWNLOAD_URL"; then
-            log "ERROR" "文件下载失败"
+          # 安全下载
+          if ! wget --tries=5 --waitretry=1 -q -O source.zip "$DOWNLOAD_URL"; then
+            log "ERROR" "下载失败：$DOWNLOAD_URL"
             exit 1
           fi
 
-          # 创建临时目录并解压源码
-          mkdir -p worker-repo/src
-          unzip -o worker-source.zip -d worker-repo/src || {
-            log "ERROR" "文件解压失败"
+          # 完整性校验
+          if ! unzip -t source.zip >/dev/null; then
+            log "ERROR" "文件校验失败"
             exit 1
-          }
-          rm worker-source.zip
+          fi
 
-          # 仅保留必要文件（根据实际项目结构调整）
-          cp -rf worker-repo/src/* worker-repo/dist/
-          rm -rf worker-repo/src
+          # 原子化更新
+          TEMP_DIR=$(mktemp -d)
+          unzip -qq source.zip -d "$TEMP_DIR"
+          
+          # 精确文件同步（根据实际项目结构调整）
+          rsync -av --delete \
+            --exclude='*.min.js' \
+            --exclude='*.map' \
+            --exclude='.github/' \
+            "$TEMP_DIR/" "target-repo/dist/"
 
-          # 更新版本文件
-          echo "$TAG_NAME" > worker-repo/version.txt
-          log "INFO" "更新完成，新版本: $TAG_NAME"
+          # 更新版本标记
+          echo "$TAG_NAME" > target-repo/version.txt
+          log "INFO" "成功同步版本：$TAG_NAME"
           echo "new_version=$TAG_NAME" >> $GITHUB_OUTPUT
 
-          total_time=$(( $(date +%s) - start_time ))
-          log "INFO" "总执行时间: ${total_time}秒"
+          # 清理
+          rm -rf "$TEMP_DIR" source.zip
 
-      - name: 提交更改
+      - name: 安全提交
         if: ${{ steps.update.outputs.new_version != '' }}
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          repository: worker-repo
-          commit_message: "🔄 自动同步 Worker 版本: ${{ steps.update.outputs.new_version }}"
+          repository: target-repo
+          commit_message: "🔄 Worker版本同步：${{ steps.update.outputs.new_version }}"
           branch: main
-          file_pattern: "version.txt dist/**"
-          push_options: '--force-with-lease'
+          file_pattern: |
+            version.txt
+            dist/
+          commit_options: '--signoff'
+          push_options: |
+            --force-with-lease
+            --atomic
+          # 添加提交校验
+          create_branch_protection_rule: false
