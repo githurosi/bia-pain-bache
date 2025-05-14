@@ -73,10 +73,15 @@ jobs:
 
           # 解析版本信息
           TAG_NAME=$(jq -r '.tag_name' <<< "$RESPONSE")
-          SOURCE_ASSET=$(jq -r ".assets[] | select(.name | contains(\"source\")) | .name" <<< "$RESPONSE" | head -1)
+          ASSET_NAMES=$(jq -r '.assets[].name' <<< "$RESPONSE")
 
-          if [ -z "$SOURCE_ASSET" ]; then
-            log "ERROR" "未找到源码包资产"
+          # 资产选择逻辑
+          if echo "$ASSET_NAMES" | grep -q "worker.zip"; then
+            SOURCE_ASSET="worker.zip"
+          elif echo "$ASSET_NAMES" | grep -q "worker.js"; then
+            SOURCE_ASSET="worker.js"
+          else
+            log "ERROR" "未找到 worker.zip 或 worker.js 资产"
             exit 1
           fi
 
@@ -89,15 +94,29 @@ jobs:
             exit 0
           fi
 
-          # 下载源码包
-          if ! wget --tries=5 --waitretry=1 -q -O source.zip "$DOWNLOAD_URL"; then
+          # 下载资产
+          if ! wget --tries=5 --waitretry=1 -q -O "$SOURCE_ASSET" "$DOWNLOAD_URL"; then
             log "ERROR" "下载失败：$DOWNLOAD_URL"
             exit 1
           fi
 
-          # 解压到临时目录
+          # 资产处理
           TEMP_DIR=$(mktemp -d)
-          unzip -qq source.zip -d "$TEMP_DIR"
+          log "INFO" "正在处理资产类型：$SOURCE_ASSET"
+
+          case "$SOURCE_ASSET" in
+            *.zip)
+              unzip -qq "$SOURCE_ASSET" -d "$TEMP_DIR"
+              ;;
+            *.js)
+              mkdir -p "$TEMP_DIR"
+              cp "$SOURCE_ASSET" "$TEMP_DIR/worker.js"
+              ;;
+            *)
+              log "ERROR" "不支持的资产类型：$SOURCE_ASSET"
+              exit 1
+              ;;
+          esac
 
           # 精确文件同步（排除混淆文件）
           rsync -av --delete \
@@ -108,18 +127,22 @@ jobs:
 
           # 更新版本标记
           echo "$TAG_NAME" > worker-repo/version.txt
-          log "INFO" "成功同步版本：$TAG_NAME"
+          log "INFO" "成功同步版本：$TAG_NAME（资产类型：$SOURCE_ASSET）"
           echo "new_version=$TAG_NAME" >> $GITHUB_OUTPUT
 
           # 清理
-          rm -rf "$TEMP_DIR" source.zip
+          rm -rf "$TEMP_DIR" "$SOURCE_ASSET"
+
+          # 性能统计
+          total_time=$(( $(date +%s) - start_time ))
+          log "INFO" "总执行时间: ${total_time}秒"
 
       - name: 提交更改
         if: ${{ steps.update.outputs.new_version != '' }}
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           repository: worker-repo
-          commit_message: "🔄 Worker源码同步：${{ steps.update.outputs.new_version }}"
+          commit_message: "🔄 Worker源码同步：${{ steps.update.outputs.new_version }}（${{ steps.update.outputs.source_asset }}）"
           branch: main
           file_pattern: |
             version.txt
