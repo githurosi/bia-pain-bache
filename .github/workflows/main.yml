@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       force_update:
-        description: '强制同步（跳过版本检查）'
+        description: '是否强制更新（忽略版本检查）'
         type: boolean
         default: false
 
@@ -25,21 +25,23 @@ jobs:
   update:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    outputs:
+      new_version: ${{ steps.update.outputs.new_version }}
     steps:
-      - name: 检出目标仓库
+      - name: 检出仓库
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          path: target-repo
+          path: worker-repo
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 安装依赖
+      - name: 预安装依赖
         run: |
           sudo apt-get update
-          sudo apt-get install -y pigz
+          sudo apt-get install -y pigz jq
 
-      - name: 同步Worker文件
-        id: sync
+      - name: 检查并更新 Worker
+        id: update
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -52,46 +54,75 @@ jobs:
             echo "[$(date +'%Y-%m-%d %H:%M:%S')] [$level] $@"
           }
 
-          REPO_OWNER="bia-pain-bache"
-          REPO_NAME="BPB-Worker-Panel"
-          SOURCE_ASSET="worker-source.zip"
+          FORCE_UPDATE=${{ inputs.force_update }}
+          LOCAL_VERSION=$(cat worker-repo/version.txt 2>/dev/null || echo "0.0.0")
+          log "INFO" "开始检查更新（本地版本: $LOCAL_VERSION）"
 
-          # 获取最新发布包
-          API_URL="https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases/latest"
+          # 获取最新版本信息
+          REPO_URL="https://api.github.com/repos/bia-pain-bache/BPB-Worker-Panel/releases/latest"
           RESPONSE=$(curl -sS --retry 5 \
             -H "Authorization: token $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github.v3+json" \
-            "$API_URL")
+            "$REPO_URL")
 
-          # 提取下载地址
+          # 验证响应
+          if ! echo "$RESPONSE" | jq -e '.tag_name' >/dev/null; then
+            log "ERROR" "API响应无效：$(jq .message <<< "$RESPONSE" || echo "无效响应")"
+            exit 1
+          fi
+
+          # 解析版本信息
+          TAG_NAME=$(jq -r '.tag_name' <<< "$RESPONSE")
+          SOURCE_ASSET=$(jq -r ".assets[] | select(.name | contains(\"source\")) | .name" <<< "$RESPONSE" | head -1)
+
+          if [ -z "$SOURCE_ASSET" ]; then
+            log "ERROR" "未找到源码包资产"
+            exit 1
+          fi
+
           DOWNLOAD_URL=$(jq -r ".assets[] | select(.name == \"$SOURCE_ASSET\") | .browser_download_url" <<< "$RESPONSE")
 
-          # 下载并解压
-          wget --tries=5 --waitretry=1 -q -O source.zip "$DOWNLOAD_URL"
+          # 版本比较
+          if [ "$LOCAL_VERSION" = "$TAG_NAME" ] && [ "$FORCE_UPDATE" != "true" ]; then
+            log "INFO" "已是最新版本：$TAG_NAME"
+            echo "new_version=$TAG_NAME" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # 下载源码包
+          if ! wget --tries=5 --waitretry=1 -q -O source.zip "$DOWNLOAD_URL"; then
+            log "ERROR" "下载失败：$DOWNLOAD_URL"
+            exit 1
+          fi
+
+          # 解压到临时目录
           TEMP_DIR=$(mktemp -d)
           unzip -qq source.zip -d "$TEMP_DIR"
 
-          # 执行文件同步（根据实际目录结构调整）
+          # 精确文件同步（排除混淆文件）
           rsync -av --delete \
+            --exclude='*.min.js' \
             --exclude='*.map' \
             --exclude='.github/' \
-            "$TEMP_DIR/" "target-repo/dist/"
+            "$TEMP_DIR/" "worker-repo/dist/"
+
+          # 更新版本标记
+          echo "$TAG_NAME" > worker-repo/version.txt
+          log "INFO" "成功同步版本：$TAG_NAME"
+          echo "new_version=$TAG_NAME" >> $GITHUB_OUTPUT
 
           # 清理
           rm -rf "$TEMP_DIR" source.zip
 
-          # 性能统计
-          total_time=$(( $(date +%s) - start_time ))
-          log "INFO" "同步完成，耗时：${total_time}秒"
-
       - name: 提交更改
-        if: ${{ always() }}
+        if: ${{ steps.update.outputs.new_version != '' }}
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          repository: target-repo
-          commit_message: "🔄 自动同步Worker文件"
+          repository: worker-repo
+          commit_message: "🔄 Worker源码同步：${{ steps.update.outputs.new_version }}"
           branch: main
           file_pattern: |
+            version.txt
             dist/
           commit_options: '--signoff'
           push_options: |
