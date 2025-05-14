@@ -25,7 +25,7 @@ jobs:
   update:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    outputs: {}  # ✅ 空outputs字段需要用空字典占位
+    outputs: {}  # 空outputs字段占位
     steps:
       - name: 检出OpenCore仓库
         uses: actions/checkout@v4
@@ -34,7 +34,7 @@ jobs:
           path: opencore-repo
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
-          ref: main
+          ref: master  # ✅ 修改为实际存在的分支名
 
       # ...（中间步骤保持不变）...
 
@@ -42,7 +42,7 @@ jobs:
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "🔄 同步 OpenCore 文件"
-          branch: main
+          branch: main  # 保持与仓库实际分支名一致
           file_pattern: "dist/** docs/**"
           commit_options: '--allow-empty'
           push_options: '--force-with-lease'
