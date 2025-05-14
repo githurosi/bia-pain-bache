@@ -34,15 +34,15 @@ jobs:
           repository: acidanthera/OpenCorePkg
           path: opencore-repo
           token: ${{ secrets.GITHUB_TOKEN }}
-          fetch-depth: 0  # 获取完整历史记录
+          fetch-depth: 0
 
       - name: 预安装依赖
         run: |
           sudo apt-get update
           sudo apt-get install -y git-lfs pigz
-          git lfs install  # 初始化Git LFS支持
+          git lfs install
 
-      - name: 检查并更新OpenCore
+      - name: 强制更新OpenCore文件 # 修改后的步骤名称
         id: update
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -56,45 +56,31 @@ jobs:
             echo "[$(date +'%Y-%m-%d %H:%M:%S')] [$level] $@"
           }
 
-          # 初始化变量
-          FORCE_UPDATE=${{ inputs.force_update }}
-          LOCAL_VERSION=$(cat version.txt 2>/dev/null || echo "0.0.0")
-          log "INFO" "开始检查更新..."
-          log "DEBUG" "本地版本: ${LOCAL_VERSION}"
-
-          # 获取最新版本标签
+          # 直接获取最新版本标签（不再比较本地版本）
           cd opencore-repo
           LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || git rev-parse --short HEAD)
           cd ..
 
-          # 版本比较
-          if [ "$LOCAL_VERSION" = "$LATEST_TAG" ] && [ "$FORCE_UPDATE" != "true" ]; then
-            log "INFO" "已是最新版本，无需更新"
-            echo "new_version=$LOCAL_VERSION" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          # 清理旧文件
+          # 清理旧文件（保留必要操作）
           rm -rf dist/* || true
 
-          # 复制必要文件（根据实际需求调整路径）
+          # 强制复制所有必要文件（移除版本条件判断）
           cp -r opencore-repo/OpenCorePkg/Binary/* dist/
           cp -r opencore-repo/Docs/* dist/docs/
 
-          # 更新版本文件
+          # 更新版本文件（保留版本记录但移除比较逻辑）
           echo "$LATEST_TAG" > version.txt
-          log "INFO" "更新完成，新版本: $LATEST_TAG"
-          echo "new_version=$LATEST_TAG" >> $GITHUB_OUTPUT
+          log "INFO" "完成文件同步，最新版本: $LATEST_TAG"
 
           # 性能统计
           total_time=$(( $(date +%s) - start_time ))
           log "INFO" "总执行时间: ${total_time}秒"
 
       - name: 提交更改
-        if: ${{ steps.update.outputs.new_version != '' }}
+        # 移除版本判断条件，始终尝试提交
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "🔄 自动同步 OpenCore 版本: ${{ steps.update.outputs.new_version }}"
+          commit_message: "🔄 强制同步 OpenCore 文件: ${{ steps.update.outputs.new_version }}"
           branch: main
           file_pattern: "version.txt dist/** docs/**"
           commit_options: '--allow-empty'
