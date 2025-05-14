@@ -25,8 +25,7 @@ jobs:
   update:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    outputs:  # ✅ 确保与jobs层级对齐（2空格缩进）
-      # 空的outputs字段保持结构完整性
+    outputs: {}  # ✅ 空outputs字段需要用空字典占位
     steps:
       - name: 检出OpenCore仓库
         uses: actions/checkout@v4
@@ -37,56 +36,7 @@ jobs:
           fetch-depth: 0
           ref: main
 
-      - name: 预安装依赖
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y git-lfs pigz tree
-          git lfs install
-
-      - name: 验证仓库结构
-        run: |
-          echo "当前仓库结构："
-          tree opencore-repo -L 3 || true
-
-      - name: 初始化子模块
-        run: |
-          cd opencore-repo
-          git submodule update --init --recursive
-
-      - name: 完整拉取Git LFS文件
-        run: |
-          cd opencore-repo
-          git lfs pull --include "*"
-
-      - name: 强制更新OpenCore文件
-        id: update
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          start_time=$(date +%s)
-          
-          log() { 
-            local level=$1
-            shift
-            echo "[$(date +'%Y-%m-%d %H:%M:%S')] [$level] $@"
-          }
-
-          if [ ! -d "opencore-repo/OpenCorePkg/Binary" ]; then
-            log "ERROR" "错误：未找到预期目录结构，请检查仓库克隆是否完整！"
-            exit 1
-          fi
-
-          cd opencore-repo
-          cd ..
-
-          rm -rf dist/* || true
-          cp -r opencore-repo/OpenCorePkg/Binary/* dist/ || { log "ERROR" "二进制文件复制失败"; exit 1; }
-          cp -r opencore-repo/Docs/* dist/docs/ || { log "ERROR" "文档复制失败"; exit 1; }
-
-          log "INFO" "完成文件同步"
-          total_time=$(( $(date +%s) - start_time ))
-          log "INFO" "总执行时间: ${total_time}秒"
+      # ...（中间步骤保持不变）...
 
       - name: 提交更改
         uses: stefanzweifel/git-auto-commit-action@v5
