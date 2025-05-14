@@ -35,6 +35,7 @@ jobs:
           path: opencore-repo
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
+          ref: main  # 显式指定检出main分支
 
       - name: 预安装依赖
         run: |
@@ -42,23 +43,30 @@ jobs:
           sudo apt-get install -y git-lfs pigz tree
           git lfs install
 
-      # 新增：验证仓库结构步骤
       - name: 验证仓库结构
         run: |
           echo "当前仓库结构："
-          tree opencore-repo -L 3 || true  # 安装tree后查看目录结构
+          tree opencore-repo -L 3 || true
 
-      # 新增：初始化子模块
       - name: 初始化子模块
         run: |
           cd opencore-repo
           git submodule update --init --recursive
+          # 验证子模块初始化
+          if [ -z "$(git submodule status)" ]; then
+            echo "❌ 子模块初始化失败"
+            exit 1
+          fi
 
-      # 新增：完整拉取Git LFS文件
       - name: 完整拉取Git LFS文件
         run: |
           cd opencore-repo
           git lfs pull --include "*"
+          # 验证LFS文件存在性
+          if [ ! -f ".gitattributes" ] || [ ! -d ".git/lfs/objects" ]; then
+            echo "❌ Git LFS文件拉取不完整"
+            exit 1
+          fi
 
       - name: 强制更新OpenCore文件
         id: update
@@ -74,7 +82,12 @@ jobs:
             echo "[$(date +'%Y-%m-%d %H:%M:%S')] [$level] $@"
           }
 
-          # 获取最新版本标签
+          # 仓库结构验证
+          if [ ! -d "opencore-repo/OpenCorePkg/Binary" ]; then
+            log "ERROR" "错误：未找到预期目录结构，请检查仓库克隆是否完整！"
+            exit 1
+          fi
+
           cd opencore-repo
           LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || git rev-parse --short HEAD)
           cd ..
@@ -83,12 +96,12 @@ jobs:
           rm -rf dist/* || true
 
           # 修正后的复制命令（根据实际路径调整）
-          # 注意：需要根据实际仓库结构修改以下路径
-          cp -r opencore-repo/Udk2020/OpenCorePkg/Binary/* dist/
-          cp -r opencore-repo/Documentation/* dist/docs/
+          cp -r opencore-repo/OpenCorePkg/Binary/* dist/ || { log "ERROR" "二进制文件复制失败"; exit 1; }
+          cp -r opencore-repo/Docs/* dist/docs/ || { log "ERROR" "文档复制失败"; exit 1; }
 
           # 更新版本文件
           echo "$LATEST_TAG" > version.txt
+          echo "new_version=$LATEST_TAG" >> $GITHUB_OUTPUT  # 关键输出设置
           log "INFO" "完成文件同步，最新版本: $LATEST_TAG"
 
           # 性能统计
@@ -98,7 +111,7 @@ jobs:
       - name: 提交更改
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "🔄 强制同步 OpenCore 文件: ${{ steps.update.outputs.new_version }}"
+          commit_message: "🔄 同步 OpenCore 文件: ${{ steps.update.outputs.new_version }}"
           branch: main
           file_pattern: "version.txt dist/** docs/**"
           commit_options: '--allow-empty'
