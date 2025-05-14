@@ -1,42 +1,57 @@
-name: Auto Update OpenCore
+name: Sync OpenCorePkg
 
 on:
-  push:
-    branches:
-      - main
   schedule:
-    - cron: "0 1 * * *"
-  workflow_dispatch:
-    inputs:
-      force_update:
-        description: '是否强制更新（忽略版本检查）'
-        type: boolean
-        default: false
+    - cron: "0 2 * * *"  # 每天凌晨2点执行
+  workflow_dispatch:  # 允许手动触发
 
 permissions:
   contents: write
   id-token: write
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  update:
+  sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    outputs: {}
+    timeout-minutes: 15
     steps:
-      # ...（前面步骤保持不变）...
+      - name: 🔄 检出OpenCorePkg仓库
+        uses: actions/checkout@v4
+        with:
+          repository: acidanthera/OpenCorePkg
+          path: opencore-repo
+          fetch-depth: 0
+          ref: master  # OpenCorePkg实际使用master分支
+          lfs: true    # 确保拉取Git LFS文件
 
-      - name: 提交更改
+      - name: 🔍 验证仓库内容
+        run: |
+          echo "当前目录结构："
+          ls -la opencore-repo/.git  # 验证.git目录存在
+          git --git-dir=opencore-repo/.git status
+
+      - name: 🔄 初始化子模块
+        working-directory: opencore-repo
+        run: |
+          git submodule update --init --recursive
+          git submodule foreach 'git checkout $(git config -f $toplevel/.gitmodules submodule.$name.branch || echo master)'
+
+      - name: 📁 准备同步目录
+        run: |
+          mkdir -p dist/Binary dist/Docs
+          cp -r opencore-repo/OpenCorePkg/Binary/* dist/Binary/
+          cp -r opencore-repo/Docs/* dist/Docs/
+
+      - name: 🚀 提交到您的仓库
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "🔄 同步 OpenCore 文件"
-          branch: main  # 确保与Fork仓库默认分支一致
-          file_pattern: "dist/** docs/**"
+          repository: .  # 在当前目录操作
+          commit_message: "🔄 同步 OpenCorePkg 最新内容"
+          branch: main  # 确保与您的仓库默认分支一致
+          file_pattern: "dist/**"
           commit_options: '--allow-empty'
           push_options: '--force-with-lease'
-          # ✅ 新增：显式指定提交用户信息
-          commit_user_name: "GitHub Actions"
-          commit_user_email: "actions@github.com"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: ✅ 完成通知
+        run: echo "🎉 OpenCorePkg同步完成！最新提交：$(git -C opencore-repo log -1 --pretty=format:%h)"
