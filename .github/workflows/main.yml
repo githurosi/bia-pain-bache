@@ -27,30 +27,39 @@ jobs:
     timeout-minutes: 10
     outputs: {}
     steps:
-      - name: ✅ 验证仓库URL
-        run: echo "正在使用仓库：acidanthera/OpenCorePkg"
+      - name: 🔍 显示当前目录结构
+        run: |
+          echo "当前工作目录: $(pwd)"
+          tree -a -L 2  # 显示隐藏文件
 
-      - name: 检出OpenCore仓库
+      - name: ✅ 验证GitHub Token权限
+        run: |
+          echo "GITHUB_TOKEN存在: ${{ secrets.GITHUB_TOKEN != '' }}"
+          echo "Token权限: ${{ toJSON(secrets) }}"
+
+      - name: 📂 手动创建仓库目录
+        run: mkdir -p opencore-repo
+
+      - name: 🔄 强制重新检出仓库
         uses: actions/checkout@v4
         with:
           repository: acidanthera/OpenCorePkg
           path: opencore-repo
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
-          ref: master  # 保持与仓库实际分支名一致
+          ref: master
+          lfs: true  # 确保拉取LFS文件
 
-      - name: 📁 验证工作目录
+      - name: 🔍 验证仓库内容
         run: |
-          pwd
-          ls -la opencore-repo/.git  # 验证.git目录存在
+          ls -la opencore-repo/.git
+          git --git-dir=opencore-repo/.git status
 
-      - name: 🔄 重新初始化仓库（备用方案）
+      - name: 🔄 初始化子模块（备用方案）
         if: ${{ failure() }}
         run: |
-          rm -rf opencore-repo
-          git clone https://github.com/acidanthera/OpenCorePkg.git opencore-repo
           cd opencore-repo
-          git checkout master
+          git submodule update --init --recursive
 
       # ...（后续步骤保持不变）...
 
