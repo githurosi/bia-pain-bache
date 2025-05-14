@@ -1,45 +1,62 @@
-name: Sync OpenCorePkg
+name: Sync BPB-Worker-Panel
 
 on:
   schedule:
-    - cron: "0 2 * * *"
-  workflow_dispatch:
+    - cron: "0 3 * * *"  # 每天凌晨3点执行
+  workflow_dispatch:  # 允许手动触发
 
 permissions:
   contents: write
   id-token: write
-  pull-requests: write  # 新增PR权限
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      # ...（前面步骤保持不变）...
+      - name: 🔄 检出目标仓库
+        uses: actions/checkout@v4
+        with:
+          repository: bia-pain-bache/BPB-Worker-Panel
+          path: target-repo
+          fetch-depth: 0
+          ref: main  # 根据实际分支修改（如 master/main）
+          lfs: true  # 如果仓库使用 Git LFS
 
-      - name: 🔐 设置Git权限
+      - name: 🔍 验证仓库内容
         run: |
-          git config --global user.email "actions@github.com"
-          git config --global user.name "GitHub Actions"
-          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+          echo "当前目录结构："
+          ls -la target-repo/.git  # 验证.git目录存在
+          git --git-dir=target-repo/.git status
 
-      - name: 🚀 提交到您的仓库（带错误处理）
+      - name: 🔄 初始化子模块（如果存在）
+        working-directory: target-repo
+        run: |
+          git submodule update --init --recursive
+          git submodule foreach 'git checkout $(git config -f $toplevel/.gitmodules submodule.$name.branch || echo main)'
+
+      - name: 📁 准备同步目录
+        run: |
+          mkdir -p dist
+          cp -r target-repo/* dist/  # 根据实际目录结构调整
+
+      - name: 🚀 提交到您的仓库
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "🔄 同步 OpenCorePkg 最新内容"
-          branch: main
+          repository: .  # 在当前目录操作
+          commit_message: "🔄 同步 BPB-Worker-Panel 最新内容"
+          branch: main  # 确保与您的仓库默认分支一致
           file_pattern: "dist/**"
           commit_options: '--allow-empty'
           push_options: '--force-with-lease'
-        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 🔄 创建PR（当直接推送失败时）
+      - name: ✅ 完成通知
+        run: echo "🎉 BPB-Worker-Panel 同步完成！最新提交：$(git -C target-repo log -1 --pretty=format:%h)"
+
+      - name: ❌ 错误处理
         if: ${{ failure() }}
-        uses: peter-evans/create-pull-request@v5
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "🔄 同步 OpenCorePkg 最新内容"
-          title: "自动同步 OpenCorePkg 更新"
-          body: "包含最新Binary和Docs文件"
-          branch: sync-bot/update
-          base: main
+        run: |
+          echo "⚠️ 同步失败，请检查日志"
+          exit 1
