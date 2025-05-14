@@ -25,8 +25,11 @@ jobs:
   update:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    outputs: {}  # 空outputs字段占位
+    outputs: {}
     steps:
+      - name: ✅ 验证仓库URL
+        run: echo "正在使用仓库：acidanthera/OpenCorePkg"
+
       - name: 检出OpenCore仓库
         uses: actions/checkout@v4
         with:
@@ -34,15 +37,28 @@ jobs:
           path: opencore-repo
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
-          ref: master  # ✅ 修改为实际存在的分支名
+          ref: master  # 保持与仓库实际分支名一致
 
-      # ...（中间步骤保持不变）...
+      - name: 📁 验证工作目录
+        run: |
+          pwd
+          ls -la opencore-repo/.git  # 验证.git目录存在
+
+      - name: 🔄 重新初始化仓库（备用方案）
+        if: ${{ failure() }}
+        run: |
+          rm -rf opencore-repo
+          git clone https://github.com/acidanthera/OpenCorePkg.git opencore-repo
+          cd opencore-repo
+          git checkout master
+
+      # ...（后续步骤保持不变）...
 
       - name: 提交更改
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "🔄 同步 OpenCore 文件"
-          branch: main  # 保持与仓库实际分支名一致
+          branch: main
           file_pattern: "dist/** docs/**"
           commit_options: '--allow-empty'
           push_options: '--force-with-lease'
