@@ -39,10 +39,28 @@ jobs:
       - name: 预安装依赖
         run: |
           sudo apt-get update
-          sudo apt-get install -y git-lfs pigz
+          sudo apt-get install -y git-lfs pigz tree
           git lfs install
 
-      - name: 强制更新OpenCore文件 # 修改后的步骤名称
+      # 新增：验证仓库结构步骤
+      - name: 验证仓库结构
+        run: |
+          echo "当前仓库结构："
+          tree opencore-repo -L 3 || true  # 安装tree后查看目录结构
+
+      # 新增：初始化子模块
+      - name: 初始化子模块
+        run: |
+          cd opencore-repo
+          git submodule update --init --recursive
+
+      # 新增：完整拉取Git LFS文件
+      - name: 完整拉取Git LFS文件
+        run: |
+          cd opencore-repo
+          git lfs pull --include "*"
+
+      - name: 强制更新OpenCore文件
         id: update
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -56,19 +74,20 @@ jobs:
             echo "[$(date +'%Y-%m-%d %H:%M:%S')] [$level] $@"
           }
 
-          # 直接获取最新版本标签（不再比较本地版本）
+          # 获取最新版本标签
           cd opencore-repo
           LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || git rev-parse --short HEAD)
           cd ..
 
-          # 清理旧文件（保留必要操作）
+          # 清理旧文件
           rm -rf dist/* || true
 
-          # 强制复制所有必要文件（移除版本条件判断）
-          cp -r opencore-repo/OpenCorePkg/Binary/* dist/
-          cp -r opencore-repo/Docs/* dist/docs/
+          # 修正后的复制命令（根据实际路径调整）
+          # 注意：需要根据实际仓库结构修改以下路径
+          cp -r opencore-repo/Udk2020/OpenCorePkg/Binary/* dist/
+          cp -r opencore-repo/Documentation/* dist/docs/
 
-          # 更新版本文件（保留版本记录但移除比较逻辑）
+          # 更新版本文件
           echo "$LATEST_TAG" > version.txt
           log "INFO" "完成文件同步，最新版本: $LATEST_TAG"
 
@@ -77,7 +96,6 @@ jobs:
           log "INFO" "总执行时间: ${total_time}秒"
 
       - name: 提交更改
-        # 移除版本判断条件，始终尝试提交
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "🔄 强制同步 OpenCore 文件: ${{ steps.update.outputs.new_version }}"
