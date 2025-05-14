@@ -45,7 +45,7 @@ jobs:
       - name: 🔄 检出Fork仓库（带子模块重定向）
         uses: actions/checkout@v4
         with:
-          repository: [githurosi]/OpenCorePkg  # ⚠️ 替换为实际Fork仓库名
+          repository: [open]/OpenCorePkg  # ⚠️ 替换为实际Fork仓库名
           path: opencore-repo
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
