@@ -21,14 +21,16 @@ jobs:
 
     - name: 客户端版本检查
       run: |
-        # 获取最新客户端版本要求
-        MIN_CLIENT_VERSION=$(curl -s "https://api.github.com/repos/bia-pain-bache/BPB-Worker-Client/releases/latest" | grep -oP '"tag_name": "\Kv1.12.\d+')
+        # 获取最新客户端版本要求（v1.12.x系列）
+        MIN_CLIENT_VERSION="v1.12.0"
+        echo "最低客户端版本要求: $MIN_CLIENT_VERSION"
         
-        # 获取当前客户端版本（假设当前版本记录在VERSION文件中）
-        CURRENT_CLIENT_VERSION=$(curl -s "https://raw.githubusercontent.com/bia-pain-bache/BPB-Worker-Client/main/VERSION")
+        # 获取当前客户端版本（从GitHub Release获取）
+        CURRENT_CLIENT_VERSION=$(curl -sL "https://api.github.com/repos/bia-pain-bache/BPB-Worker-Client/releases/latest" | grep -oP '"tag_name": "\Kv1.12.\d+')
+        echo "当前客户端版本: $CURRENT_CLIENT_VERSION"
         
-        # 版本比较
-        if [ "$(printf '%s\n' "$MIN_CLIENT_VERSION" "$CURRENT_CLIENT_VERSION" | sort -V | head -n1)" != "$MIN_CLIENT_VERSION" ]; then
+        # 版本比较（使用sort -V进行版本比较）
+        if [ "$(printf '%s\n%s' "$MIN_CLIENT_VERSION" "$CURRENT_CLIENT_VERSION" | sort -V | head -n1)" != "$MIN_CLIENT_VERSION" ]; then
           echo "错误：客户端版本需要至少$MIN_CLIENT_VERSION，当前版本为$CURRENT_CLIENT_VERSION"
           echo "请先更新客户端：https://github.com/bia-pain-bache/BPB-Worker-Client/releases"
           exit 1
