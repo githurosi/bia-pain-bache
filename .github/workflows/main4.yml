@@ -9,15 +9,15 @@ jobs:
   sync-content:
     permissions:
       contents: write
-      issues: write  # 新增权限用于创建版本说明
+      issues: write
     runs-on: ubuntu-latest
 
     steps:
-    - name: 检出仓库
+    - name: 检出仓库（完整历史）
       uses: actions/checkout@v4
       with:
         ref: main
-        fetch-depth: 0  # 获取完整历史记录用于版本比较
+        fetch-depth: 0  # 获取完整提交历史
 
     - name: 下载资产
       run: |
@@ -25,21 +25,31 @@ jobs:
         curl -L -o worker.zip "https://github.com/bia-pain-bache/BPB-Worker-Panel/raw/main/worker.zip"
         curl -L -o source-code.zip "https://github.com/bia-pain-bache/BPB-Worker-Panel/raw/main/source-code.zip"
 
-    - name: 生成更新说明
+    - name: 生成详细变更日志
       id: changelog
       run: |
-        # 获取变更文件列表
-        CHANGES=$(git diff --name-status HEAD)
+        # 获取自上次同步以来的提交历史
+        COMMITS=$(git log --pretty=format:"%h%x09%an%x09%ad%x09%s" --date=format:'%Y-%m-%d %H:%M:%S' --reverse HEAD~1..)
         
-        # 生成格式化说明
-        echo "本次同步包含以下更新：" > CHANGELOG.md
-        echo "$CHANGES" | grep -v '^D' | while read line; do
-          status=$(echo $line | cut -c1)
-          file=$(echo $line | cut -c3-)
-          echo "- ${status} ${file}" >> CHANGELOG.md
-        done
+        # 生成格式化变更日志
+        echo "# 变更日志" > CHANGELOG.md
+        echo "" >> CHANGELOG.md
         
-        # 生成版本标签（使用UTC时间）
+        while IFS=$'\t' read -r hash author date message; do
+          echo "## [${hash}](https://github.com/${{ github.repository }}/commit/${hash}) (${date})" >> CHANGELOG.md
+          echo "**${author}**" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          
+          # 获取完整提交消息
+          full_message=$(git log -1 --pretty=format:"%b" $hash)
+          echo "$full_message" | while read line; do
+            echo "- $line" >> CHANGELOG.md
+          done
+          
+          echo "" >> CHANGELOG.md
+        done <<< "$COMMITS"
+        
+        # 生成版本标签
         VERSION_TAG="v$(date -u +'%Y.%m.%d-%H%M')-sync"
         echo "version_tag=$VERSION_TAG" >> $GITHUB_OUTPUT
         echo "changelog<<EOF" >> $GITHUB_OUTPUT
