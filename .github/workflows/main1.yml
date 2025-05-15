@@ -2,28 +2,25 @@ name: Sync-BPB-Worker-Panel
 
 on:
   schedule:
-    - cron: '0 0 * * *'  # 每天UTC时间00:00自动触发
-  workflow_dispatch:      # 允许手动触发
+    - cron: '0 0 * * *'
+  workflow_dispatch:
 
 jobs:
   sync-content:
+    permissions:  # 关键权限配置
+      contents: write
     runs-on: ubuntu-latest
 
     steps:
     - name: 检出仓库
       uses: actions/checkout@v4
       with:
-        ref: main  # 替换为您的目标分支
+        ref: main
 
     - name: 下载资产
       run: |
-        # 下载worker.js
         curl -L -o worker.js "https://github.com/bia-pain-bache/BPB-Worker-Panel/raw/main/worker.js"
-        
-        # 下载worker.zip
         curl -L -o worker.zip "https://github.com/bia-pain-bache/BPB-Worker-Panel/raw/main/worker.zip"
-        
-        # 下载源代码（假设为zip格式，根据实际情况调整）
         curl -L -o source-code.zip "https://github.com/bia-pain-bache/BPB-Worker-Panel/raw/main/source-code.zip"
 
     - name: 提交更改
@@ -32,4 +29,4 @@ jobs:
         git config user.email 'github-actions[bot]@users.noreply.github.com'
         git add worker.js worker.zip source-code.zip
         git commit -m "chore: 同步BPB-Worker-Panel资产 [skip ci]" || echo "没有更改需要提交"
-        git push origin main  # 替换为您的目标分支
+        git push origin main
