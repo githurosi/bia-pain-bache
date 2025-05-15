@@ -17,13 +17,13 @@ jobs:
       uses: actions/checkout@v4
       with:
         ref: main
-        fetch-depth: 0  # 获取完整提交历史
+        fetch-depth: 0
 
     - name: 下载资产
       run: |
-        curl -L -o Releases "https://github.com/bia-pain-bache/BPB-Worker-Panel/raw/main/Releases"
-        #curl -L -o worker.zip "https://github.com/bia-pain-bache/BPB-Worke
-        #curl -L -o source-code.zip "https://github.com/bia-pain-bache/BPB-Worker-Panel/raw/main/source-code.zip"
+        curl -L -o worker.js "https://github.com/bia-pain-bache/BPB-Worker-Panel/raw/main/worker.js"
+        curl -L -o worker.zip "https://github.com/bia-pain-bache/BPB-Worker-Panel/raw/main/worker.zip"
+        curl -L -o source-code.zip "https://github.com/bia-pain-bache/BPB-Worker-Panel/raw/main/source-code.zip"
 
     - name: 生成详细变更日志
       id: changelog
@@ -46,6 +46,15 @@ jobs:
             echo "- $line" >> CHANGELOG.md
           done
           
+          # 获取文件变更统计
+          stats=$(git diff --stat $hash^! | grep -v 'CHANGELOG.md\|worker.js\|worker.zip\|source-code.zip')
+          if [ -n "$stats" ]; then
+            echo "" >> CHANGELOG.md
+            echo "```diff" >> CHANGELOG.md
+            echo "$stats" >> CHANGELOG.md
+            echo "```" >> CHANGELOG.md
+          fi
+          
           echo "" >> CHANGELOG.md
         done <<< "$COMMITS"
         
@@ -61,15 +70,25 @@ jobs:
         git config user.name 'github-actions[bot]'
         git config user.email 'github-actions[bot]@users.noreply.github.com'
         
-        # 添加所有变更文件和更新说明
-        git add Releases CHANGELOG.md
-        
-        # 创建带版本标签的提交
+        git add worker.js worker.zip source-code.zip CHANGELOG.md
         git commit -m "chore: 同步BPB-Worker-Panel资产 [skip ci]
         
         ${{ steps.changelog.outputs.changelog }}"
         
-        # 推送代码和标签
         git push origin main
         git tag ${{ steps.changelog.outputs.version_tag }}
         git push origin ${{ steps.changelog.outputs.version_tag }}
+
+    - name: 发送邮件通知
+      uses: dawidd6/action-send-mail@v3
+      with:
+        server_address: smtp.example.com
+        server_port: 587
+        username: ${{ secrets.SMTP_USERNAME }}
+        password: ${{ secrets.SMTP_PASSWORD }}
+        subject: BPB-Worker-Panel 同步更新通知 (${{ steps.changelog.outputs.version_tag }})
+        body: ${{ steps.changelog.outputs.changelog }}
+        to: team@example.com
+        from: GitHub Actions <noreply@github.com>
+        convert_markdown: true
+        priority: high
