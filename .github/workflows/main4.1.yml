@@ -21,9 +21,9 @@ jobs:
 
     - name: 下载资产
       run: |
-        curl -L -o worker.js "https://github.com/bia-pain-bache/BPB-Worker-Panel/raw/main/worker.js"
-        curl -L -o worker.zip "https://github.com/bia-pain-bache/BPB-Worker-Panel/raw/main/worker.zip"
-        curl -L -o source-code.zip "https://github.com/bia-pain-bache/BPB-Worker-Panel/raw/main/source-code.zip"
+        curl -L -o Releases "https://github.com/bia-pain-bache/BPB-Worker-Panel/raw/main/Releases"
+        #curl -L -o worker.zip "https://github.com/bia-pain-bache/BPB-Worke
+        #curl -L -o source-code.zip "https://github.com/bia-pain-bache/BPB-Worker-Panel/raw/main/source-code.zip"
 
     - name: 生成详细变更日志
       id: changelog
@@ -62,7 +62,7 @@ jobs:
         git config user.email 'github-actions[bot]@users.noreply.github.com'
         
         # 添加所有变更文件和更新说明
-        git add worker.js worker.zip source-code.zip CHANGELOG.md
+        git add Releases CHANGELOG.md
         
         # 创建带版本标签的提交
         git commit -m "chore: 同步BPB-Worker-Panel资产 [skip ci]
