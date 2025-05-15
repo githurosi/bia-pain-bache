@@ -1,0 +1,39 @@
+name: Sync Latest Repository
+
+on:
+  schedule:
+    # 每天UTC时间0点执行（可根据需要调整cron表达式）
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: '手动同步触发原因'
+        required: false
+
+jobs:
+  sync-repo:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 配置SSH密钥
+        uses: webfactory/ssh-agent@v0.8.0
+        with:
+          ssh-private-key: ${{ secrets.MIRROR_SSH_KEY }}  # 需在仓库Secrets中配置
+
+      - name: 初始化Git配置
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: 克隆源仓库（仅最新内容）
+        run: git clone --depth 1 https://github.com/dortania/OpenCore-Legacy-Patcher.git source-repo
+
+      - name: 强制推送至目标仓库
+        run: |
+          cd source-repo
+          # 替换为你的目标仓库SSH地址（格式：git@github.com:用户名/仓库名.git）
+          git remote add target ${{ secrets.TARGET_REPO_SSH }}
+          git push --force target main:main  # 根据目标仓库分支调整
+
+      - name: 清理临时文件
+        if: always()
+        run: rm -rf source-repo
